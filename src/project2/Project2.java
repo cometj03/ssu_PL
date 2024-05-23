@@ -35,6 +35,37 @@ enum Token {
     UNKNOWN
 }
 
+public class Project2 {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        while (true) {
+            System.out.print(">> ");
+            String input = sc.nextLine();
+            if (input.equals("terminate")) break;
+
+//            LexicalAnalyzer la = new LexicalAnalyzer(input);
+//            while (la.nextToken != Token.EOF && la.nextToken != Token.UNKNOWN) {
+//                la.lex();
+//                System.out.println("1. " + la.nextToken);
+//            }
+
+            RDParser parser = new RDParser(input);
+            try {
+                parser.parse();
+                parser.execute();
+            } catch (SyntaxException e) {
+                System.out.println(e.getMessage());
+            }
+        }
+    }
+}
+
+class SyntaxException extends Exception {
+    SyntaxException() {
+        super("Syntax Error!!");
+    }
+}
+
 class LexicalAnalyzer {
     private final String input;
     public Token nextToken;
@@ -51,22 +82,16 @@ class LexicalAnalyzer {
         curIdx = 0;
         getChar();
         if (input.isEmpty()) nextToken = Token.EOF;
+        else nextToken = null;
     }
 
-    public int getCurIdx() {
+    public int getCheckPoint() {
         return curIdx;
     }
 
-    public void setCurIdx(int curIdx) {
+    public void setCheckPoint(int curIdx) {
         this.curIdx = curIdx;
-    }
-
-    public char getNextChar() {
-        return nextChar;
-    }
-
-    public void setNextChar(char nextChar) {
-        this.nextChar = nextChar;
+        this.nextChar = input.charAt(curIdx - 1);
     }
 
     public void lex() {
@@ -212,91 +237,160 @@ class LexicalAnalyzer {
 
 class RDParser {
     private final LexicalAnalyzer la;
-    private final Map<String, String> VARMAP = new HashMap<>();
+    private final Map<String, Integer> VARMAP = new HashMap<>();
     private boolean exe = false;
 
     RDParser(String input) {
         la = new LexicalAnalyzer(input);
     }
 
-    public void parse() throws Exception {
+    public void parse() throws SyntaxException {
         exe = false;
         la.init();
         program();
     }
 
-    public void execute() {
+    public void execute() throws SyntaxException {
         exe = true;
         VARMAP.clear();
         la.init();
-        try {
-            program();
-        } catch (Exception e) {
+        program();
+        System.out.println();
+    }
+
+    void program() throws SyntaxException {
+        la.lex();
+        while (la.nextToken != Token.EOF && la.nextToken == Token.TYPE_INT) {
+            declaration();
+        }
+        while (la.nextToken != Token.EOF) {
+            statement();
         }
     }
 
-    void program() throws Exception {
-
+    void declaration() throws SyntaxException {
+        type();
+        String id = var();
+        VARMAP.put(id, 0);
+        if (la.nextToken != Token.SEMICOLON) throw new SyntaxException();
+        la.lex();
     }
 
-    void declaration() throws Exception {
-
-    }
-
-    void statement() throws Exception {
-
-    }
-
-    void bexpr() throws Exception {
-
-    }
-
-    void relop() throws Exception {
-
-    }
-
-    void aexpr() throws Exception {
-
-    }
-
-    void term() throws Exception {
-
-    }
-
-    void type() throws Exception {
-
-    }
-
-    void number() throws Exception {
-
-    }
-
-    void var() throws Exception {
-
-    }
-}
-
-public class Project2 {
-    public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        while (true) {
-            System.out.print(">> ");
-            String input = sc.nextLine();
-            if (input.equals("terminate")) break;
-
-//            LexicalAnalyzer la = new LexicalAnalyzer(input);
-//            while (la.nextToken != Token.EOF && la.nextToken != Token.UNKNOWN) {
-//                la.lex();
-//                System.out.println(la.nextToken);
-//            }
-
-            RDParser parser = new RDParser(input);
-            try {
-                parser.parse();
-            } catch (Exception e) {
-                System.out.println("Syntax Error!!");
+    void statement() throws SyntaxException {
+        switch (la.nextToken) {
+            case IDENT -> {
+                if (!VARMAP.containsKey(la.lexeme)) throw new SyntaxException();
+                String l_value = var();
+                if (la.nextToken != Token.ASSIGN_OP) throw new SyntaxException();
+                la.lex();
+                int r_value = aexpr();
+                VARMAP.put(l_value, r_value);
             }
-            parser.execute();
+            case PRINT -> {
+                la.lex();
+                switch (la.nextToken) {
+                    case REL_EQ, REL_NEQ, REL_GE, REL_GT, REL_LE, REL_LT -> {
+                        boolean result = bexpr();
+                        if (exe) System.out.print((result ? "TRUE" : "FALSE") + " ");
+                    }
+                    default -> {
+                        int result = aexpr();
+                        if (exe) System.out.print(result + " ");
+                    }
+                }
+            }
+            case DO -> {
+                
+                la.lex();
+            }
+            default -> throw new SyntaxException();
         }
+        if (la.nextToken != Token.SEMICOLON) throw new SyntaxException();
+        la.lex();
+    }
+
+    boolean bexpr() throws SyntaxException {
+        Token rel = la.nextToken;
+        relop();
+        int a = aexpr();
+        int b = aexpr();
+
+        return switch (rel) {
+            case REL_EQ -> a == b;
+            case REL_NEQ -> a != b;
+            case REL_GE -> a >= b;
+            case REL_GT -> a > b;
+            case REL_LE -> a <= b;
+            case REL_LT -> a < b;
+            default -> throw new SyntaxException();
+        };
+    }
+
+    void relop() throws SyntaxException {
+        switch (la.nextToken) {
+            case REL_EQ, REL_NEQ, REL_GE, REL_GT, REL_LE, REL_LT -> { /* do nothing */}
+            default -> throw new SyntaxException();
+        }
+        la.lex();
+    }
+
+    int aexpr() throws SyntaxException {
+        int num = term();
+
+        Token op = la.nextToken;
+        while (op == Token.ADD_OP || op == Token.SUB_OP || op == Token.MULT_OP || op == Token.DIV_OP) {
+            la.lex();
+            int tmp = term();
+            switch (op) {
+                case ADD_OP -> num += tmp;
+                case SUB_OP -> num -= tmp;
+                case MULT_OP -> num *= tmp;
+                case DIV_OP -> num /= tmp;
+            }
+            op = la.nextToken;
+        }
+        return num;
+    }
+
+    int term() throws SyntaxException {
+        return switch (la.nextToken) {
+            case INT_LIT -> number();
+            case IDENT -> {
+                if (!VARMAP.containsKey(la.lexeme)) throw new SyntaxException();
+                int num = VARMAP.get(la.lexeme);
+                la.lex();
+                yield num;
+            }
+            case LEFT_PAREN -> {
+                la.lex();
+                int num = aexpr();
+                if (la.nextToken != Token.RIGHT_PAREN) throw new SyntaxException();
+                la.lex();
+                yield num;
+            }
+            default -> throw new SyntaxException();
+        };
+    }
+
+    void type() throws SyntaxException {
+        if (la.nextToken != Token.TYPE_INT) throw new SyntaxException();
+        la.lex();
+    }
+
+    int number() throws SyntaxException {
+        if (la.nextToken != Token.INT_LIT || la.lexeme.length() > 10)
+            throw new SyntaxException();
+        int num = Integer.parseInt(la.lexeme);
+        la.lex();
+        return num;
+    }
+
+    String var() throws SyntaxException {
+        if (la.nextToken != Token.IDENT || la.lexeme.length() > 10)
+            throw new SyntaxException();
+        String id = la.lexeme;
+        la.lex();
+        return id;
     }
 }
+
